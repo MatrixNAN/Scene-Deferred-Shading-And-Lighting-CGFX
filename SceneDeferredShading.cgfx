@@ -1,0 +1,383 @@
+/********************************************************
+* ----------------------------------------------------- *
+* ===================================================== *
+*  By Nate Nesler										*
+* ===================================================== *
+*  date: 10/23/2011										*
+*  Scene Deferred Shading And Lighting MRT         		*
+* ===================================================== *
+*														*
+*  Description of your shader goes here.				*
+* ===================================================== *
+*														*
+*  License goes here.									*
+* ===================================================== *
+* ----------------------------------------------------- *
+*********************************************************/
+
+float Script : STANDARDSGLOBAL 
+<
+    string UIWidget = "none";
+    string ScriptClass = "scene";
+    string ScriptOrder = "standard";
+    string ScriptOutput = "color";
+    string Script = "Technique=technique0;";
+> = 0.8;
+
+/* =====================================================*/
+/* -------------------- Matrix Forms -------------------*/
+/* =====================================================*/
+
+float4x4 WorldViewProj : WorldViewProjection
+< 
+	string UIWidget="None"; 
+>;
+
+float4x4 ViewIXf : ViewInverse 
+< 
+	string UIWidget="None"; 
+>;
+
+float4x4 WorldXf : World 
+< 
+	string UIWidget="None"; 
+>;
+
+float4x4 WorldViewIXf : WorldViewInverse
+< 
+	string UIWidget="None"; 
+>;
+
+float4x4 WorldITXf : WorldInverseTranspose
+< 
+	string UIWidget="None"; 
+>;
+
+/* =====================================================*/
+/* ------------------- ARTIST CONTROLS -----------------*/
+/* =====================================================*/
+
+const float3 Ka : COLOR
+<
+	string UIWidget = "Color";
+	string UIName =  "Ambient Color";
+>  = {0.8f, 0.8f, 0.8f};
+	
+const float3 Kd : COLOR
+<
+	string UIWidget = "Color";
+	string UIName =  "Diffuse Color";
+>  = {0.8f, 0.8f, 0.8f};
+
+const float3 Ks : COLOR
+<
+	string UIWidget = "Color";
+	string UIName =  "Specular Color";
+>  = {0.8f, 0.8f, 0.8f};
+
+const float SpecPower : SpecularPower 
+<
+    string UIWidget = "slider";
+    float UIMin = 1.0;
+    float UIMax = 128.0;
+    float UIStep = 1.0;
+    string UIName =  "Specular Power";
+> = 55.0;
+
+float4 ClearColor 
+<
+	string UIWidget = "none";
+> = {0,0,0,0};
+
+float ClearDepth 
+<
+	string UIWidget = "none";
+> = 1.0;
+
+/* =====================================================*/
+/* ----------------------- Lights ----------------------*/
+/* =====================================================*/
+const float3 Lamp0Dir : Direction 
+<
+    string Object = "DirectionalLight0";
+    string UIName =  "Lamp 0 Direction";
+    string Space = "World";
+> = {0.7f, -0.7f, -0.7f};
+
+const float3 Lamp0Color : Specular 
+<
+    string UIName =  "Lamp 0 Color";
+    string Object = "DirectionalLight0";
+    string UIWidget = "Color";
+> = {1.0f, 1.0f, 1.0f};
+
+/* =====================================================*/
+/* ---------------------- TEXTURES ---------------------*/
+/* =====================================================*/
+
+texture ColorTexture  
+<
+    string ResourceName = "default_color.dds";
+    string UIName =  "Diffuse Texture";
+    string ResourceType = "2D";
+>;
+
+sampler2D ColorSampler = sampler_state 
+{
+    Texture = <ColorTexture>;
+    MinFilter = LinearMipMapLinear;
+    MagFilter = Linear;
+    WrapS = Repeat;
+    WrapT = Repeat;
+};  
+
+texture DeferredColorTexture : RENDERCOLORTARGET 
+<
+	float2 ViewPortRatio = {1.0, 1.0};
+	int MipLevels = 1;
+	string Format = "A16B16G16R16";
+    string UIName =  "Deferred Color Texture";
+    string UIWidget = "";
+>;
+
+sampler2D DeferredColorSampler = sampler_state 
+{
+    Texture = <DeferredColorTexture>;
+    MagFilter = Linear; 
+    MinFilter = Linear; 
+    MipFilter = Point;
+    WrapS = ClampToEdge;
+    WrapT = ClampToEdge;
+};  
+
+texture DeferredNormalTexture : RENDERCOLORTARGET 
+<
+	float2 ViewPortRatio = {1.0, 1.0};
+	int MipLevels = 1;
+	string Format = "A16B16G16R16";
+    string UIName =  "Deferred Normal Texture";
+    string UIWidget = "";
+>;
+
+sampler2D DeferredNormalSampler = sampler_state 
+{
+    Texture = <DeferredNormalTexture>;
+    MagFilter = Linear; 
+    MinFilter = Linear; 
+    MipFilter = Point;
+    WrapS = ClampToEdge;
+    WrapT = ClampToEdge;
+};  
+
+texture DeferredViewTexture : RENDERCOLORTARGET 
+<
+	float2 ViewPortRatio = {1.0, 1.0};
+	int MipLevels = 1;
+	string Format = "A16B16G16R16";
+    string UIName =  "Deferred View Texture";
+    string UIWidget = "";
+>;
+
+sampler2D DeferredViewSampler = sampler_state 
+{
+    Texture = <DeferredViewTexture>;
+    MagFilter = Linear; 
+    MinFilter = Linear; 
+    MipFilter = Point;
+    WrapS = ClampToEdge;
+    WrapT = ClampToEdge;
+};  
+
+texture DepthBufferTexture : RENDERDEPTHSTENCILTARGET 
+< 
+    float2 ViewPortRatio = {1.0, 1.0}; 
+    string Format = "D24S8"; 
+    string UIName = "Depth Buffer Texture";
+    string UIWidget = "";
+>; 
+
+sampler2D DepthBufferSampler = sampler_state 
+{
+    Texture = <DepthBufferTexture>;
+    MagFilter = Linear; 
+    MinFilter = Linear; 
+    MipFilter = Point;
+    WrapS = ClampToEdge;
+    WrapT = ClampToEdge;
+};  
+
+/* =====================================================*/
+/* ---------------- IN AND OUT PARAMETERS --------------*/
+/* =====================================================*/
+
+struct vsIn
+{
+    float3 Position	: POSITION;
+    float2 UV		: TEXCOORD0;
+	float4 Normal	: NORMAL;
+    float4 Tangent	: TANGENT0;
+    float4 Binormal	: BINORMAL0;
+};
+
+/* -----------------------------------------------------*/
+/*     data passed from vertex shader to pixel shader   */
+/* -----------------------------------------------------*/
+struct vsOut 
+{
+    float4 Position	: POSITION;
+    float2 UV		: TEXCOORD0;
+    float3 Lwn	: TEXCOORD1;  // Light Vector In World Space normalized
+    float3 Nwn	: TEXCOORD2;  // Normal In World Space normalized
+    float3 Vwn	: TEXCOORD3;  // View/Camera Vector In World Space normalized
+	float3 Twn	: TEXCOORD4;  // Tangent Vector In World Space normalized
+	float3 Bwn	: TEXCOORD5;  // Binormal Vector In World Space	normalized
+};
+
+struct vsScreenOut 
+{
+    float4 Position	: POSITION;
+    float2 UV		: TEXCOORD0;
+};
+
+struct fsOut
+{
+	float4 Color 	: COLOR;		
+};
+ 
+/* =====================================================*/
+/* -------------------- VERTEX SHADER ------------------*/
+/* =====================================================*/
+
+vsScreenOut screenVS(vsIn IN) 
+{
+    vsScreenOut OUT;
+	
+    OUT.Position = float4(IN.Position.xyz, 1);
+	OUT.UV = IN.UV.xy;
+
+	return OUT;
+}
+
+vsOut mainVS(vsIn IN) 
+{
+    vsOut OUT;
+	
+    float4 Po = float4(IN.Position.xyz, 1);
+    float3 Pw = mul(WorldXf, Po).xyz;
+	
+    OUT.Nwn = normalize( mul(WorldITXf, IN.Normal).xyz );
+
+	// Samething for the View Inverse Transpose as the World Inverse Transpose.
+   	OUT.Vwn = normalize(float3(ViewIXf[0].w,ViewIXf[1].w,ViewIXf[2].w) - Pw);
+	OUT.Twn = normalize( mul(WorldITXf, IN.Tangent).xyz ); 
+    OUT.Bwn = normalize( mul(WorldITXf, IN.Binormal).xyz );
+    
+	OUT.UV = IN.UV.xy;
+	OUT.Position = mul(WorldViewProj, Po);
+	
+	return OUT;
+}
+
+/* =====================================================*/
+/* --------------- PIXEL / FRAGMENT SHADER -------------*/
+/* =====================================================*/
+
+float3 Vector2Texture(float3 vec) 
+{ 
+	return ((vec * 0.5) + float3(0.5, 0.5, 0.5)); 
+}
+
+float3 Texture2Vector(float3 tex) 
+{ 
+	return ((tex - float3(0.5, 0.5, 0.5)) * 2.0); 
+}
+
+//   
+//    Create Multiple Render Targets aka MRTs for defered shading
+//
+void PreMRT_PS(vsOut IN,
+	out float4 ColorOut : COLOR0,
+	out float4 NormalOut : COLOR1,
+	out float4 ViewOut : COLOR2)
+{
+	NormalOut = float4(Vector2Texture(normalize(IN.Nwn)), 1.0);
+    ViewOut = float4(Vector2Texture(normalize(IN.Vwn)), 1.0);
+    ColorOut = float4(Kd * tex2D(ColorSampler, IN.UV).rgb, 1.0);
+}
+
+fsOut mainPS(vsOut IN)
+{
+	fsOut OUT;
+		
+    float3 Nn = Texture2Vector(tex2D(DeferredNormalSampler, IN.UV).xyz);
+    float3 Vn = Texture2Vector(tex2D(DeferredViewSampler,IN.UV).xyz);
+    float3 Ln = normalize(-Lamp0Dir); // normalize() potentially un-neccesary
+    float3 Hn = normalize(Vn + Ln);
+    float4 litV = lit(dot(Ln,Nn), dot(Hn,Nn), SpecPower);
+    float3 specular = (Ks * litV.y * litV.z) * Lamp0Color;
+	float3 diffuseTexture = tex2D(DeferredColorSampler, IN.UV).rgb;
+    float3 diffuse = ((litV.y * Lamp0Color) + Ka) * diffuseTexture;
+    OUT.Color = float4(diffuse + specular, 1.0);
+	    
+	return OUT;
+}
+
+/* =====================================================*/
+/* --------------------- TECHNIQUES --------------------*/
+/* =====================================================*/
+
+technique technique0   
+< 
+	string Script =
+	"Pass=p0;"
+    "Pass=p1;";
+> 
+{
+    pass p0 
+	< 
+		string Script =
+	    "RenderColorTarget0=DeferredColorTexture;"
+	    "RenderColorTarget1=DeferredNormalTexture;"
+	    "RenderColorTarget2=DeferredViewTexture;"
+	    "RenderDepthStencilTarget=DepthBufferTexture;"
+	    "ClearSetColor=ClearColor;"
+	    "ClearSetDepth=ClearDepth;"
+	    "Clear=Color0;"
+	    "Clear=Color1;"
+	    "Clear=Color2;"
+	    "Clear=Depth;"
+	    "Draw=Geometry;";
+    > 
+	{
+		DepthTestEnable = true;
+		DepthMask = true;
+		CullFaceEnable = false;
+		BlendEnable = false;
+		DepthFunc = LEqual;
+        VertexProgram = compile vp40 mainVS();
+        FragmentProgram = compile fp40 PreMRT_PS();
+    }
+
+    pass p1 
+	< 
+		string Script =
+	    "RenderColorTarget0=;"
+	    "RenderColorTarget1=;"
+	    "RenderColorTarget2=;"
+	    "RenderDepthStencilTarget=;"
+	    "ClearSetColor=ClearColor;"
+	    "ClearSetDepth=ClearDepth;"
+	    "Clear=Color;"
+	    "Clear=Depth;"
+	    "Draw=Buffer;";
+    > 
+	{
+		DepthTestEnable = false;
+		DepthMask = false;
+		CullFaceEnable = false;
+		BlendEnable = false;
+		DepthFunc = LEqual;
+        VertexProgram = compile vp40 screenVS();
+        FragmentProgram = compile fp40 mainPS();
+    }
+}
